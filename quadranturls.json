@@ -1,0 +1,9 @@
+{
+  "ethersJs": "https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js",
+  "defaultRpcUrls": [
+    "https://cloudflare-eth.com",
+    "https://ethereum.publicnode.com", 
+    "https://1rpc.io/eth",
+    "https://eth.drpc.org"
+  ]
+}
