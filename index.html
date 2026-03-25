@@ -266,6 +266,9 @@ hr.overlay-sep {
     console.log('No tokenId in URL → using fallback (local/demo mode)');
   }
 
+  // previewWallet — passed by mint page to skip on-chain owner lookup
+  const previewWallet = urlParams.get('previewWallet') || hashParams.get('previewWallet') || null;
+
   const COLOR_SHIFT_START = { year: 2025, month: 8, day: 31, hour: 0, minute: 0, second: 0, useUTC: true };
   const SHIFT_START_MS = (COLOR_SHIFT_START.useUTC
     ? Date.UTC(COLOR_SHIFT_START.year, COLOR_SHIFT_START.month-1, COLOR_SHIFT_START.day, COLOR_SHIFT_START.hour, COLOR_SHIFT_START.minute, COLOR_SHIFT_START.second)
@@ -1892,7 +1895,11 @@ hr.overlay-sep {
 
       WARP.resize(canvas.width, canvas.height);
 
-      await fetchOwnerWithRawCalls();
+      if (previewWallet && previewWallet.startsWith('0x') && previewWallet.length === 42) {
+        startArtAfterOwner(previewWallet);
+      } else {
+        await fetchOwnerWithRawCalls();
+      }
     } catch (error) {
       console.error('Failed to initialize:', error);
       showStatus('Initialization failed - using demo mode', true);
