@@ -1904,6 +1904,14 @@ hr.overlay-sep {
 
       if (previewWallet && previewWallet.startsWith('0x') && previewWallet.length === 42) {
         console.log('Preview mode: using previewWallet →', previewWallet);
+        try {
+          const rpcUrl = DEFAULT_RPC_URLS[0];
+          state.txCount = await fetchTxCount(previewWallet, rpcUrl);
+          console.log(`Preview tx count for ${previewWallet}: ${state.txCount}`);
+        } catch(e) {
+          console.warn('Could not fetch tx count for previewWallet:', e.message);
+          state.txCount = 0;
+        }
         startArtAfterOwner(previewWallet);
       } else {
         await fetchOwnerWithRawCalls();
