@@ -1,0 +1,1917 @@
+<!DOCTYPE html>
+  <style>
+:root { color-scheme: dark; }
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #0b0b0b;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  color: #fff;
+  overflow: hidden;
+}
+#stage { position: relative; width: 100vw; height: 100vh; }
+#generativeCanvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  display: block; background: #000; z-index: 1;
+}
+
+/* Loading screen */
+#loader {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.92);
+  z-index: 9999;
+  transition: opacity 280ms ease;
+}
+#loader.hidden { opacity: 0; pointer-events: none; }
+.loader-inner { text-align: center; }
+.logo {
+  font-weight: 800;
+  font-size: clamp(22px, 3vw, 40px);
+  letter-spacing: 3px;
+  margin-bottom: 8px;
+}
+.brand {
+  font-weight: 800;
+  letter-spacing: 2px;
+  font-size: clamp(28px, 5vw, 64px);
+  line-height: 1.1;
+}
+.byline {
+  opacity: .85;
+  margin-top: 6px;
+  font-size: clamp(12px, 1.8vw, 18px);
+}
+.typing {
+  margin-top: 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: clamp(12px, 1.8vw, 18px);
+  letter-spacing: .5px;
+  display: inline-flex;
+  align-items: center;
+}
+.caret {
+  display: inline-block;
+  width: 0.6ch;
+  height: 1.1em;
+  margin-left: 3px;
+  border-right: 2px solid #fff;
+  animation: blink 1s steps(1,end) infinite;
+}
+@keyframes blink { 50% { border-right-color: transparent; } }
+
+
+
+/* Overlay */
+#overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: transparent; z-index: 3; }
+#overlayContent { 
+  width: 100vw; 
+  height: 100vh; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+/* Controls bar */
+#controlsMenu {
+  position: absolute;
+  left: 50%;
+  top: 16px;
+  transform: translate(-50%, 0);
+  z-index: 4;
+  background: rgba(0,0,0,0.6);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+  width: min(560px, 92vw);
+  backdrop-filter: blur(4px);
+  transition: transform 240ms ease, opacity 240ms ease;
+  will-change: transform, opacity;
+  opacity: 1;
+}
+#controlsMenu.hidden {
+  transform: translate(-50%, -140%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.row > * { flex: 1 1 0; min-width: 140px; }
+label { font-size: 12px; opacity: .95; display: flex; flex-direction: column; gap: 6px; }
+select, input[type="text"] {
+  background: #111; color: #fff; border: 1px solid #333; border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; width: 100%; box-sizing: border-box;
+}
+button {
+  background: #191919; color: #fff; border: 1px solid #333; border-radius: 8px;
+  padding: 8px 12px; font-size: 13px; cursor: pointer;
+}
+button:hover { background: #222; }
+
+/* Small helper styles for overlay rows */
+.kv {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 8px 16px;
+  font-size: clamp(11px, 1.5vw, 14px);
+  line-height: 1.4;
+}
+.kvl { opacity: .85; white-space: nowrap; }
+.kvv { font-family: "Courier New", ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; }
+hr.overlay-sep {
+  border: none; border-top: 1px solid rgba(255,255,255,.14);
+  margin: 8px 0 0 0;
+}
+  </style>
+<body>
+  <div id="stage">
+    <canvas id="generativeCanvas"></canvas>
+
+    <!-- Loading screen -->
+    <div id="loader">
+      <div class="loader-inner">
+        <div class="brand">QUADRANTS</div>
+        <div class="byline">By: AwfulEye</div>
+        <div class="typing"><span id="loadingText"></span><span class="caret"></span></div>
+      </div>
+    </div>
+
+
+
+    <!-- Controls -->
+    <div id="controlsMenu" class="hidden">
+      <div class="row">
+        <label>
+          Lines
+          <select id="lineTypeSelect"></select>
+        </label>
+        <button id="regenBtn" title="Regenerate layout" style="flex:0 0 auto">Regen</button>
+      </div>
+
+      <!-- RPC URL controls -->
+      <div class="row">
+        <label style="flex:1 1 100%">
+          RPC URL (active or custom)
+          <input id="rpcUrlInput" type="text" placeholder="https://your-node.example.com" />
+        </label>
+      </div>
+      <div class="row">
+        <button id="useRpcBtn">Use RPC</button>
+        <button id="resetRpcBtn" title="Clear custom URL and retry with defaults">Reset RPCs</button>
+        <button id="retryLookupBtn" title="Retry owner lookup now">Retry Owner Lookup</button>
+      </div>
+      <div class="row" style="opacity:.8; font-size:12px">
+        <div id="rpcHelp" style="flex:1">
+          Tip: scroll/swipe down to open, up to hide. Paste an HTTPS mainnet JSON-RPC endpoint here to override.
+        </div>
+      </div>
+    </div>
+
+    <div id="overlay"><div id="overlayContent"></div></div>
+  </div>
+
+<script>
+  /* ===============================
+     PLATFORM DETECTION & FIXES
+  =============================== */
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const isManifold = window.location.hostname.includes('manifold') || window.location.hostname.includes('vercel') || window.location.hostname.includes('netlify');
+  const isSandboxed = (() => {
+    try {
+      // Test if we're in a sandboxed environment
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+      const isSandboxed = !iframe.contentWindow;
+      document.body.removeChild(iframe);
+      return isSandboxed;
+    } catch (e) {
+      return true; // Assume sandboxed if we can't test
+    }
+  })();
+
+  console.log('Environment:', { isLocalhost, isManifold, isSandboxed, hostname: window.location.hostname });
+
+  /* ===============================
+     SIMPLE STATUS LOGGING (NO OVERLAYS)
+  =============================== */
+  function showStatus(message, showButton = false) {
+    console.log('STATUS:', message);
+  }
+
+  function hideStatus() {
+    // No-op since we removed the status overlay
+  }
+
+  /* ===============================
+     URL LOADING - WITH FALLBACKS
+  =============================== */
+  function loadQuadrantsUrls() {
+    return fetch('https://awfuleye.github.io/quadrants/quadranturls.json')
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: Failed to load quadrantsurls.json`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        console.log('Successfully loaded URLs from quadrantsurls.json:', data);
+        return data;
+      })
+      .catch(error => {
+        console.error('Cannot load quadrantsurls.json, using fallbacks:', error.message);
+        // Return fallback configuration
+        return {
+          defaultRpcUrls: [
+            'https://eth-mainnet.g.alchemy.com/v2/demo',
+            'https://mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161'
+          ]
+        };
+      });
+  }
+
+  /* ===============================
+     CONFIG
+  =============================== */
+  const NFT_CONTRACT = '0x07ADf21203c99253095fACB5995737Cc6eb70f05';
+
+  // ── DYNAMIC TOKEN ID FOR EDITIONS / SUPERRARE / LIQUID EDITIONS ──
+  let NFT_TOKEN_ID = '8'; // fallback for local testing / demo mode
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+
+  // Case-insensitive token ID lookup — supports ?tokenId=, ?tokenid=, ?id=, ?token=
+  function getUrlTokenId(params) {
+    // Build a lowercase key → value map so any casing works
+    const map = {};
+    for (const [k, v] of params.entries()) {
+      map[k.toLowerCase()] = v;
+    }
+    return map['tokenid'] || map['id'] || map['token'] || null;
+  }
+
+  const paramId = getUrlTokenId(urlParams) || getUrlTokenId(hashParams);
+
+  if (paramId) {
+    NFT_TOKEN_ID = paramId.trim();
+    console.log(`Edition / SuperRare / Liquid mode: using token ID from URL → ${NFT_TOKEN_ID}`);
+  } else {
+    console.log('No tokenId in URL → using fallback (local/demo mode)');
+  }
+
+  const COLOR_SHIFT_START = { year: 2025, month: 8, day: 31, hour: 0, minute: 0, second: 0, useUTC: true };
+  const SHIFT_START_MS = (COLOR_SHIFT_START.useUTC
+    ? Date.UTC(COLOR_SHIFT_START.year, COLOR_SHIFT_START.month-1, COLOR_SHIFT_START.day, COLOR_SHIFT_START.hour, COLOR_SHIFT_START.minute, COLOR_SHIFT_START.second)
+    : new Date(COLOR_SHIFT_START.year, COLOR_SHIFT_START.month-1, COLOR_SHIFT_START.day, COLOR_SHIFT_START.hour, COLOR_SHIFT_START.minute, COLOR_SHIFT_START.second).getTime());
+
+  // Will be populated from quadrantsurls.json with fallbacks
+  let DEFAULT_RPC_URLS = [
+    'https://eth-mainnet.g.alchemy.com/v2/demo',
+    'https://mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161'
+  ];
+
+  const MULTIPLIER = 1.0;
+
+  /* ===== Quadrant-SYMMETRIC Quadrant warp (wallet-independent overlay) ===== */
+  const WARP_SETTINGS = { enabled: true };
+
+  /* ===============================
+     CANVAS BASICS
+  =============================== */
+  const canvas  = document.getElementById('generativeCanvas');
+  const context = canvas.getContext('2d', { alpha: true });
+
+  function sizeCanvas(){ canvas.width = Math.floor(canvas.clientWidth); canvas.height = Math.floor(canvas.clientHeight); }
+  function clearTransparent(){ context.save(); context.setTransform(1,0,0,1,0,0); context.clearRect(0,0,canvas.width,canvas.height); context.restore(); }
+  function underpaintBlack(){ context.save(); context.globalCompositeOperation='destination-over'; context.fillStyle='#000'; context.fillRect(0,0,canvas.width,canvas.height); context.restore(); }
+
+  sizeCanvas();
+
+  /* ===============================
+     RNG + STATE - NO CHROMATIC TYPES
+  =============================== */
+  function fnv1a(str){ let h=0x811c9dc5>>>0; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=(h+((h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24)))>>>0; } return h>>>0; }
+  function mulberry32(seed){ let a=seed>>>0; return function(){ a=(a+0x6D2B79F5)>>>0; let t=a; t=Math.imul(t^(t>>>15), t|1); t^=t+Math.imul(t^(t>>>7), t|61); return ((t^(t>>>14))>>>0)/4294967296; }; }
+  let baseSeed = fnv1a('idle');
+  let rng = mulberry32(baseSeed);
+  function reseed(s){ rng = mulberry32(s>>>0); }
+  function seededFloat(){ return rng(); }
+  function frameRngFor(i){ const mixed=(baseSeed^(0x9e3779b9+(i|0)))>>>0; return mulberry32(mixed); }
+
+  const state = {
+    numLines: 200, lineWidth: 3, lineLength: 120, gapWidth: 12, numColors: 24,
+    // ONLY 4 SINGLE TYPES + 6 COMBINATIONS = 10 TOTAL (NO CHROMATIC)
+    lineTypes: [
+      'solid', 'dashes', 'dotted', 'double',
+      'soliddashed', 'soliddotted', 'soliddouble',
+      'dashesdotted', 'dashesdouble', 'dotteddouble'
+    ],
+    lineType: 'solid',
+    colorShiftInterval: 60000,
+    rank: 3,
+    walletAddress: '',
+    base: { numLines: 0, lineWidth: 0, lineLength: 0, gapWidth: 0, numColors: 0 },
+    colorsUsed: [],
+    lines: [],
+    visibilityRatio: 0.6,
+    parallaxAmount: 0,
+    lastColorOffset: null,
+    activeRpcUrl: '',
+    customRpcUrl: '',
+    isFetching: false,
+    walletHexLower: '',
+    walletSeedBase: 0,
+    regenCount: 0,
+    walletDefaults: null,
+    txCount: 0,
+    txRank: 1,
+    walletRank: 3,
+    zeroPenalty: 0,
+    zeroBoost: 0,
+    displayRank: 1,
+    ensName: null
+  };
+
+  /* ===============================
+     WALLET → PARAMS MAPPING
+  =============================== */
+  function chunkToDigitsString(h5){ const map={a:'1',b:'2',c:'3',d:'4',e:'5',f:'6'}; let s=''; for(let i=0;i<5;i++){ const ch=h5[i].toLowerCase(); s += (ch>='0'&&ch<='9')?ch:map[ch]; } return s; }
+  function digitsStringToValue_Tens(s5){ return parseFloat(s5.slice(0,2)+'.'+s5.slice(2)); }
+  function digitsStringToValue_Ones(s5){ return parseFloat(s5.slice(0,1)+'.'+s5.slice(1)); }
+  function split8x5(hex40){ const chunks=[]; for(let i=0;i<40;i+=5) chunks.push(hex40.slice(i,i+5)); return chunks; }
+
+  // For value calculation only: swap leading '0' with '1' so the chunk
+  // contributes a meaningful value. The original hex is kept for display.
+  function patchLeadingZero(h5){ return h5[0] === '0' ? '1' + h5.slice(1) : h5; }
+
+  // Each chunk starting with '0' earns a rank penalty applied before the multiplier.
+  function countZeroChunks(chunks){ return chunks.filter(h => h[0] === '0').length; }
+
+  // Chunks starting with '69' OR starting with '420' earn a rank boost.
+  function countBoostChunks(chunks){ return chunks.filter(h => h.startsWith('69') || h.startsWith('420')).length; }
+  function computeWalletRank(digitsArr){ const all=digitsArr.join(''); let sum=0; for(let i=0;i<all.length;i++) sum+=(all.charCodeAt(i)-48); return (sum%5)+1; }
+  function computeTxRank(txCount){ return Math.max(1, Math.min(100, Math.log10(txCount + 1) * 25)); }
+
+  function mapFromChunkValues(chunks, digitsArr, values, rank, walletRank) {
+    overlayModel = { chunks, digitsArr };
+    const B0=values[0], B1=values[1], B2=values[2], B4=values[4], B5=values[5], B6=values[6], B7=values[7];
+    const GAP_ONES = digitsStringToValue_Ones(digitsArr[3]);
+
+    state.base.numLines   = Math.max(0, Math.round(B0));
+    state.base.lineWidth  = Math.max(0, B1);
+    state.base.lineLength = Math.max(0, B2);
+    state.base.gapWidth   = Math.max(0, GAP_ONES);
+    state.base.numColors  = Math.max(1, Math.floor(B4));
+
+    const ltIndex = (Math.floor(B5) % state.lineTypes.length + state.lineTypes.length) % state.lineTypes.length;
+
+    state.rank               = rank;
+    state.numLines           = Math.round(state.base.numLines   * rank * MULTIPLIER);
+    state.lineWidth          =           state.base.lineWidth   * rank * MULTIPLIER;
+    state.lineLength         =           state.base.lineLength  * rank * MULTIPLIER;
+    state.numColors          = Math.max(1, Math.floor(state.base.numColors * rank * MULTIPLIER));
+    state.gapWidth           = state.base.gapWidth * rank * MULTIPLIER;
+    state.lineType           = state.lineTypes[ltIndex];
+    // Speed and parallax use walletRank only — unaffected by tx count
+    state.colorShiftInterval = (B7 / 10) * walletRank * 1000;
+
+    // Calculate parallax amount as percentage from B6 value
+    state.parallaxAmount = B6 * walletRank * MULTIPLIER;
+
+    const fracSum=(B0%1)+(B1%1)+(B2%1)+(GAP_ONES%1)+(B4%1)+(B5%1)+(B6%1)+(B7%1);
+    state.visibilityRatio = Math.min(1, Math.max(0, fracSum/8));
+
+    state.colorsUsed = generateSeededColors(state.numColors);
+    state.lastColorOffset = null;
+
+    state.walletDefaults = {
+      lineType: state.lineType
+    };
+  }
+
+  /* ===============================
+     COLORS + LINES (NO CHROMATIC)
+  =============================== */
+  function getSeededColor(){ const r=Math.floor(seededFloat()*256), g=Math.floor(seededFloat()*256), b=Math.floor(seededFloat()*256); return `${r}, ${g}, ${b}`; }
+  function generateSeededColors(n){ const c=Math.max(1,Math.floor(n)); const arr=new Array(c); for(let i=0;i<c;i++) arr[i]=getSeededColor(); return arr; }
+
+  // ONLY ALLOW NON-CHROMATIC TYPES
+  function sanitizeType(t){
+    const validTypes = new Set([
+      'solid', 'dashes', 'dotted', 'double',
+      'soliddashed', 'soliddotted', 'soliddouble',
+      'dashesdotted', 'dashesdouble', 'dotteddouble'
+    ]);
+    return validTypes.has(t) ? t : 'solid';
+  }
+
+  function generateLines(){
+    state.lines.length = 0;
+    const W = canvas.width, H = canvas.height;
+    const lt = sanitizeType(state.lineType);
+
+    for (let i = 0; i < state.numLines; i++) {
+      const x = seededFloat() * (W / 2);
+      const y1 = seededFloat() * H;
+      const y2 = Math.min(H, y1 + (seededFloat() * state.lineLength));
+      const lw = Math.max(1e-4, seededFloat() * state.lineWidth);
+      const color = state.colorsUsed[i % state.numColors];
+
+      // For combination types, determine which variant to use for this line
+      let variant1 = null, variant2 = null;
+      if (lt.includes('solid')) variant1 = 'solid';
+      if (lt.includes('dashes')) variant1 = variant1 ? variant1 : 'dashes', variant2 = variant1 === 'solid' ? 'dashes' : variant2;
+      if (lt.includes('dotted')) variant1 = variant1 ? variant1 : 'dotted', variant2 = variant1 === 'solid' ? 'dotted' : (variant1 === 'dashes' ? 'dotted' : variant2);
+      if (lt.includes('double')) variant1 = variant1 ? variant1 : 'double', variant2 = variant2 ? variant2 : 'double';
+
+      // If it's a combination type, alternate between the two variants
+      let activeVariant = variant1;
+      if (variant2 && variant1 !== variant2) {
+        activeVariant = (i % 2 === 0) ? variant1 : variant2;
+      }
+
+      const QuadrantedX = W - x, y1m = H - y1, y2m = H - y2;
+
+      const base = { 
+        baseY1: y1, 
+        baseY2: y2, 
+        y1, y2, 
+        lineWidth: lw, 
+        color, 
+        lineType: lt, 
+        visible: true, 
+        activeVariant,
+        parallaxOffset: seededFloat() * 2 - 1 // Random offset between -1 and 1 for each line
+      };
+
+      // 4-way symmetry
+      state.lines.push({ x,               ...base, baseY1: y1, baseY2: y2 });
+      state.lines.push({ x: QuadrantedX,  ...base, baseY1: y1, baseY2: y2 });
+      state.lines.push({ x,               ...base, baseY1: y1m, baseY2: y2m });
+      state.lines.push({ x: QuadrantedX,  ...base, baseY1: y1m, baseY2: y2m });
+    }
+  }
+
+  function clampGap(g){ return Math.max(1, Math.min(400, g)); }
+  function applyTwoPxDash(ctx, gap){ const px=clampGap(gap); ctx.setLineDash([2,px]); ctx.lineDashOffset=0; }
+
+  function applyDottedPattern(ctx, lineWidth, gapCandidate){
+    const dotLen = 0.001;
+    const gapPx = clampGap(gapCandidate + Math.max(0, lineWidth * 0.8));
+    ctx.setLineDash([dotLen, gapPx]);
+    ctx.lineDashOffset = 0;
+  }
+
+  function makeEndFadeGradient(ctx, x, y1, y2, rgb='255,255,255'){
+    const g=ctx.createLinearGradient(x,y1,x,y2);
+    g.addColorStop(0,`rgba(${rgb},0)`); g.addColorStop(0.5,`rgba(${rgb},1)`); g.addColorStop(1,`rgba(${rgb},0)`);
+    return g;
+  }
+
+  // ONLY 4 STROKE TYPES (NO CHROMATIC)
+  function strokeSolid(ctx,x,y1,y2,w,color){
+    ctx.save();
+    const g=makeEndFadeGradient(ctx,x,y1,y2,color);
+    ctx.beginPath(); ctx.moveTo(x,y1); ctx.lineTo(x,y2);
+    ctx.lineWidth=w; ctx.strokeStyle=g; ctx.setLineDash([]);
+    ctx.lineCap='butt'; ctx.lineJoin='miter';
+    ctx.stroke(); ctx.restore();
+  }
+  function strokeDashes(ctx,x,y1,y2,w,color,gap){
+    ctx.save();
+    const g=makeEndFadeGradient(ctx,x,y1,y2,color);
+    ctx.beginPath(); ctx.moveTo(x,y1); ctx.lineTo(x,y2);
+    ctx.lineWidth=Math.max(0.5,w*0.66);
+    ctx.strokeStyle=g; ctx.lineCap='butt';
+    applyTwoPxDash(ctx,gap);
+    ctx.stroke(); ctx.restore();
+  }
+  function strokeDotted(ctx,x,y1,y2,w,color,gap){
+    ctx.save();
+    const g=makeEndFadeGradient(ctx,x,y1,y2,color);
+    ctx.beginPath(); ctx.moveTo(x,y1); ctx.lineTo(x,y2);
+    ctx.lineWidth=Math.max(0.5,w*0.75); ctx.strokeStyle=g;
+    ctx.lineCap='round'; applyDottedPattern(ctx, ctx.lineWidth, gap);
+    ctx.stroke(); ctx.restore();
+  }
+  function strokeDouble(ctx,x,y1,y2,w,color){
+    const railGap=Math.max(2.0,w*1.2), off=railGap/2, railW=Math.max(0.5,w*0.6);
+    strokeSolid(ctx,x-off,y1,y2,railW, color);
+    strokeSolid(ctx,x+off,y1,y2,railW, color);
+  }
+
+  // DRAW FUNCTION WITH NO CHROMATIC SUPPORT
+  function drawTechLinesFromConfig(lines){
+    const ctx=context; ctx.globalCompositeOperation='source-over';
+    lines.forEach((line, i)=>{
+      const {x,y1,y2,lineWidth,color,visible,activeVariant} = line;
+      if(!visible) return;
+      
+      const variant = activeVariant || 'solid';
+      
+      if(variant==='solid') strokeSolid(ctx,x,y1,y2,lineWidth,color);
+      else if(variant==='dashes') strokeDashes(ctx,x,y1,y2,lineWidth,color,state.gapWidth);
+      else if(variant==='dotted') strokeDotted(ctx,x,y1,y2,lineWidth,color,state.gapWidth);
+      else if(variant==='double') strokeDouble(ctx,x,y1,y2,lineWidth,color);
+    });
+  }
+
+  function applyTimeAnchoredColors(){
+    const ms=state.colorShiftInterval; if(ms<=0||state.numColors<=0) return;
+    const cycles=Math.floor((Date.now()-SHIFT_START_MS)/ms);
+    const offset=cycles>0 ? (cycles%state.numColors) : 0;
+    if(offset===state.lastColorOffset) return;
+    state.lastColorOffset=offset;
+    for(let i=0;i<state.numLines;i++){
+      const color=state.colorsUsed[(i+offset)%state.numColors]; const b=i*4;
+      if(state.lines[b]){ state.lines[b].color=color; state.lines[b+1].color=color; state.lines[b+2].color=color; state.lines[b+3].color=color; }
+    }
+  }
+
+  function animateVisibility(){
+    const frng=frameRngFor(frameIndex);
+    for(let i=0;i<state.numLines;i++){
+      const on = frng() < state.visibilityRatio; const b=i*4;
+      if(state.lines[b]){ state.lines[b].visible=on; state.lines[b+1].visible=on; state.lines[b+2].visible=on; state.lines[b+3].visible=on; }
+    }
+  }
+
+  function animateParallax(){
+    const time = Date.now() * 0.001; // Convert to seconds
+    const parallaxSpeed = state.parallaxAmount / 100; // Use wallet chunk for speed (e.g., 107.910 / 100 = 1.079)
+    const canvasHeight = canvas.height;
+    
+    for(let i=0;i<state.numLines;i++){
+      const b=i*4;
+      if(state.lines[b]){
+        // Calculate parallax offset using sine wave and percentage of canvas height
+        const parallaxOffset = Math.sin(time * parallaxSpeed + i * 0.1) * (state.parallaxAmount / 1000) * canvasHeight * state.lines[b].parallaxOffset;
+        
+        // Apply parallax with quadrant symmetry:
+        // Top quadrants (lines 0,1): normal parallax
+        // Bottom quadrants (lines 2,3): inverted parallax to maintain symmetry
+        if(state.lines[b]){     // Top-left
+          state.lines[b].y1 = state.lines[b].baseY1 + parallaxOffset;
+          state.lines[b].y2 = state.lines[b].baseY2 + parallaxOffset;
+        }
+        if(state.lines[b+1]){   // Top-right
+          state.lines[b+1].y1 = state.lines[b+1].baseY1 + parallaxOffset;
+          state.lines[b+1].y2 = state.lines[b+1].baseY2 + parallaxOffset;
+        }
+        if(state.lines[b+2]){   // Bottom-left
+          state.lines[b+2].y1 = state.lines[b+2].baseY1 - parallaxOffset;
+          state.lines[b+2].y2 = state.lines[b+2].baseY2 - parallaxOffset;
+        }
+        if(state.lines[b+3]){   // Bottom-right
+          state.lines[b+3].y1 = state.lines[b+3].baseY1 - parallaxOffset;
+          state.lines[b+3].y2 = state.lines[b+3].baseY2 - parallaxOffset;
+        }
+      }
+    }
+  }
+
+  let overlayModel=null, currentPanel=null, frameIndex=0, rafTimer=null;
+
+  /* ===============================
+     Quadrant-SYMMETRIC Quadrant WARP
+  =============================== */
+  class QuadrantWarp {
+    constructor(opts){
+      this.enabled = !!opts.enabled;
+
+      // Full offscreen buffer
+      this.off = document.createElement('canvas');
+      this.octx = this.off.getContext('2d', { alpha: true });
+
+      // Quadrant buffer (top-left)
+      this.quadrant = document.createElement('canvas');
+      this.qctx = this.quadrant.getContext('2d', { alpha: true });
+
+      // Tile scratch
+      this.scratch = document.createElement('canvas');
+      this.sctx = this.scratch.getContext('2d', { alpha: true });
+
+      this.colour = '#000000'; // match background
+
+      // Grid / pattern properties
+      this.scale = 0;   // pixel scale per Quadrant sub-cell
+      this.size  = 0;   // tile size (4 * scale)
+      this.quadrantCols = 0;
+      this.quadrantRows = 0;
+      this.center = {x:0,y:0};
+
+      this.step = 0;
+      this.expands = true;
+      this.mx = 1;
+
+      this.dither = [];
+      this.length = 0;
+      this.pixel = null;
+
+      this.lastTs = null;
+      this.accumMs = 0;
+    }
+
+    _draw(ctx, img, x, y){ ctx.putImageData(img, x, y); }
+
+    _createDither(){
+      const sctx = this.sctx;
+      const size = this.size;
+      const scale = this.scale;
+
+      // one "pixel" (a small filled circle) to build the 4x4 Quadrant tile progressively
+      sctx.clearRect(0,0,size,size);
+      sctx.fillStyle = this.colour;
+      sctx.beginPath();
+      const radius = scale / 2;
+      sctx.arc(radius, radius, radius, 0, Math.PI*2);
+      sctx.fill();
+      const pixel = sctx.getImageData(0,0,scale,scale);
+      this.pixel = pixel;
+
+      sctx.clearRect(0,0,size,size);
+
+      // Standard 4x4 Quadrant build order
+      const sequence = [
+        0,10,2,8,
+        5,15,7,13,
+        1,11,3,9,
+        4,14,6,12];
+      const sq = sequence.length / 4;
+
+      this.dither = [];
+      for (const num of sequence){
+        const row = Math.floor(num / sq);
+        const col = num % sq;
+        this._draw(sctx, pixel, col*scale, row*scale);
+        const pattern = sctx.getImageData(0,0,size,size);
+        const repeats = Math.ceil(Math.random()*4);
+        for(let r=0; r<=repeats; r++){
+          this.dither.push(pattern);
+          this.dither.unshift(pattern);
+        }
+      }
+
+      sctx.clearRect(0,0,size,size);
+      this.length = this.dither.length || 1;
+    }
+
+    resize(W,H){
+      // full buffer
+      this.off.width = W; 
+      this.off.height = H;
+
+      // choose a scale relative to min dimension
+      this.scale = Math.round(Math.min(W,H) * 0.0025) + 4;
+      this.size  = this.scale * 4;
+
+      // quadrant is exactly a quarter of the canvas
+      const qW = Math.ceil(W / 2);
+      const qH = Math.ceil(H / 2);
+      this.quadrant.width  = qW;
+      this.quadrant.height = qH;
+
+      // grid in the quadrant
+      this.quadrantCols = Math.ceil(qW / this.size);
+      this.quadrantRows = Math.ceil(qH / this.size);
+      this.center = { x: this.quadrantCols/2, y: this.quadrantRows/2 };
+
+      // scratch for a single tile
+      this.scratch.width  = this.size;
+      this.scratch.height = this.size;
+
+      this.step = 0;
+      this.expands = true;
+      this.mx = W;
+
+      this._createDither();
+
+      this.lastTs = null;
+      this.accumMs = 0;
+    }
+
+    update(nowMs){
+      if(!this.enabled) return;
+      if(this.lastTs == null){ this.lastTs = nowMs; return; }
+      const dtMs = Math.max(0, nowMs - this.lastTs);
+      this.lastTs = nowMs;
+
+      const W = this.off.width || 1;
+      const fps = Math.round((this.mx / W) * 28) + 2;
+      const intervalMs = 1000 / fps;
+
+      this.accumMs += dtMs;
+      const dir = this.expands ? -1 : +1;
+
+      while(this.accumMs >= intervalMs){
+        this.step += dir;
+        this.accumMs -= intervalMs;
+      }
+    }
+
+    draw(targetCtx){
+      if(!this.enabled) return;
+
+      const octx = this.octx;
+      const qctx = this.qctx;
+
+      const W = this.off.width, H = this.off.height;
+      const qW = this.quadrant.width, qH = this.quadrant.height;
+
+      // clear buffers
+      octx.setTransform(1,0,0,1,0,0);
+      octx.clearRect(0,0,W,H);
+      qctx.setTransform(1,0,0,1,0,0);
+      qctx.clearRect(0,0,qW,qH);
+
+      // render Quadrant tile progression into TL quadrant only
+      const size=this.size, dither=this.dither, len=this.length;
+      const cols=this.quadrantCols, rows=this.quadrantRows;
+      const cx=this.center.x, cy=this.center.y;
+      const baseStep=this.step;
+      const mod = (n, m) => ((n % m) + m) % m;
+
+      for(let i = cols*rows; i >= 0; i--){
+        const row = (i / cols) | 0;
+        const col = i % cols;
+        const ring = (cy * Math.hypot((col - cx)/cy, (row - cy)/cy)) | 0;
+        const idx = mod(baseStep + ring, len);
+        const pattern = dither[idx];
+        if(pattern) qctx.putImageData(pattern, col*size, row*size);
+      }
+
+      // Quadrant TL quadrant to TR / BL / BR
+      // TL (original)
+      octx.drawImage(this.quadrant, 0, 0);
+
+      // TR (horizontal Quadrant)
+      octx.save();
+      octx.translate(W, 0);
+      octx.scale(-1, 1);
+      octx.drawImage(this.quadrant, 0, 0);
+      octx.restore();
+
+      // BL (vertical Quadrant)
+      octx.save();
+      octx.translate(0, H);
+      octx.scale(1, -1);
+      octx.drawImage(this.quadrant, 0, 0);
+      octx.restore();
+
+      // BR (both Quadrants)
+      octx.save();
+      octx.translate(W, H);
+      octx.scale(-1, -1);
+      octx.drawImage(this.quadrant, 0, 0);
+      octx.restore();
+
+      // present
+      targetCtx.save();
+      targetCtx.globalCompositeOperation = 'source-over';
+      targetCtx.drawImage(this.off, 0, 0);
+      targetCtx.restore();
+    }
+  }
+
+  const WARP = new QuadrantWarp(WARP_SETTINGS);
+
+  /* ===============================
+     ANIMATION LOOP
+  =============================== */
+  let baseMsPerFrame = 100;
+
+  function updateAndAnimate(){
+    frameIndex++;
+    clearTransparent();
+
+    // Lines (beneath)
+    applyTimeAnchoredColors();
+    animateVisibility();
+    animateParallax();
+    drawTechLinesFromConfig(state.lines);
+
+    // Quadrant overlay ABOVE lines
+    if (WARP.enabled){
+      WARP.update(performance.now());
+      WARP.draw(context);
+    }
+
+    underpaintBlack();
+
+    clearTimeout(rafTimer);
+    rafTimer=setTimeout(()=>requestAnimationFrame(updateAndAnimate), baseMsPerFrame);
+  }
+
+  /* ===============================
+     LOADER CONTROL
+  =============================== */
+  let loaderTimer = null;
+  function startLoading(){
+    const loader=document.getElementById('loader');
+    if(!loader) return;
+    loader.classList.remove('hidden');
+
+    const el = document.getElementById('loadingText');
+    const text = 'Loading...';
+    let i = 0;
+    let forward = true;
+
+    const step = () => {
+      if (!el) return;
+      // Smoothly type and erase without overshooting (prevents the flash)
+      el.textContent = text.slice(0, i);
+
+      if (forward) {
+        i++;
+        if (i > text.length) {
+          i = text.length;          // clamp
+          forward = false;           // switch direction
+          loaderTimer = setTimeout(step, 700); // hold on full text briefly
+          return;
+        }
+      } else {
+        i--;
+        if (i < 0) {
+          i = 0;                     // clamp
+          forward = true;            // start typing again
+          loaderTimer = setTimeout(step, 300); // small pause at empty
+          return;
+        }
+      }
+
+      loaderTimer = setTimeout(step, 75);
+    };
+    // initialize cleanly
+    if (el) el.textContent = '';
+    step();
+  }
+  function endLoading(){
+    const loader=document.getElementById('loader');
+    if(loader) loader.classList.add('hidden');
+    if (loaderTimer) { clearTimeout(loaderTimer); loaderTimer = null; }
+  }
+
+  /* ===============================
+     FETCH TX COUNT FOR A WALLET
+  =============================== */
+  async function fetchTxCount(address, rpcUrl) {
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_getTransactionCount',
+        params: [address, 'latest'],
+        id: 2
+      })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    if (result.error) throw new Error(result.error.message);
+    return parseInt(result.result, 16);
+  }
+
+  /* ===============================
+     ENS REVERSE LOOKUP
+  =============================== */
+  async function resolveEnsName(name) {
+    // Forward lookup: .eth name → wallet address
+    try {
+      const response = await fetch(
+        `https://ensdata.net/${encodeURIComponent(name)}`,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data.address || null;
+    } catch(e) {
+      return null;
+    }
+  }
+
+  async function fetchEnsName(address) {
+    try {
+      const response = await fetch(
+        `https://ensdata.net/${address}`,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data.ens || null;
+    } catch(e) {
+      return null;
+    }
+  }
+
+  /* ===============================
+     RAW FETCH OWNER LOOKUP (NO ETHERS.JS)
+  =============================== */
+  async function fetchOwnerWithRawCalls() {
+    if (state.isFetching) return;
+    state.isFetching = true;
+    
+    console.log('Using raw fetch calls to bypass ethers.js network detection issues');
+    showStatus('Connecting to Ethereum network...', false);
+    
+    try {
+      // Convert contract address and token ID to hex
+      const contractAddr = NFT_CONTRACT.toLowerCase();
+      // Use BigInt to safely handle large token IDs (ERC-721 IDs can exceed Number.MAX_SAFE_INTEGER)
+      let tokenIdBigInt;
+      try {
+        tokenIdBigInt = BigInt(NFT_TOKEN_ID.trim());
+      } catch(e) {
+        console.warn('Invalid token ID, falling back to 0:', NFT_TOKEN_ID);
+        tokenIdBigInt = 0n;
+      }
+      const tokenIdHex = '0x' + tokenIdBigInt.toString(16).padStart(64, '0');
+      
+      // ERC-721 ownerOf function signature
+      const ownerOfSig = '0x6352211e'; // keccak256("ownerOf(uint256)").substring(0, 10)
+      const callData = ownerOfSig + tokenIdHex.substring(2);
+      
+      // Try custom RPC first if provided
+      const tryUrls = state.customRpcUrl && state.customRpcUrl.trim() 
+        ? [state.customRpcUrl.trim(), ...DEFAULT_RPC_URLS]
+        : DEFAULT_RPC_URLS;
+      
+      for (const rpcUrl of tryUrls) {
+        try {
+          console.log(`Trying raw RPC call to: ${rpcUrl}`);
+          
+          const response = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'eth_call',
+              params: [{
+                to: contractAddr,
+                data: callData
+              }, 'latest'],
+              id: 1
+            })
+          });
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          
+          const result = await response.json();
+          
+          if (result.error) {
+            throw new Error(`RPC Error: ${result.error.message}`);
+          }
+          
+          if (!result.result || result.result === '0x') {
+            throw new Error('No result returned');
+          }
+          
+          // Parse the owner address from the result
+          const ownerHex = result.result;
+          if (ownerHex.length < 66) {
+            throw new Error('Invalid owner address length');
+          }
+          
+          // Extract the address (last 40 characters)
+          const ownerAddress = '0x' + ownerHex.slice(-40);
+          
+          console.log(`SUCCESS: Found owner ${ownerAddress} via ${rpcUrl}`);
+          state.activeRpcUrl = rpcUrl;
+
+          // Fetch transaction count for the owner
+          try {
+            const txCount = await fetchTxCount(ownerAddress, rpcUrl);
+            state.txCount = txCount;
+            console.log(`TX count for ${ownerAddress}: ${txCount}`);
+          } catch(txErr) {
+            console.warn('Could not fetch tx count, defaulting to 0:', txErr.message);
+            state.txCount = 0;
+          }
+
+          // Fetch ENS name (non-blocking, best effort)
+          fetchEnsName(ownerAddress).then(name => {
+            state.ensName = name;
+            console.log(`ENS name for ${ownerAddress}: ${name || 'none'}`);
+            refreshOverlayIfShowing();
+          });
+
+          hideStatus();
+          startArtAfterOwner(ownerAddress);
+          return;
+          
+        } catch (error) {
+          console.warn(`Raw RPC failed for ${rpcUrl}:`, error.message);
+          continue;
+        }
+      }
+      
+      // If all RPCs failed, use demo mode
+      console.log('All RPC calls failed, using demo mode');
+      const demoAddress = '0x1234567890123456789012345678901234567890';
+      
+      showStatus('Network unavailable - running in demo mode', true);
+      startArtAfterOwner(demoAddress);
+      
+    } catch (error) {
+      console.error('fetchOwnerWithRawCalls failed:', error);
+      showStatus('Failed to connect to network - using demo mode', true);
+      startArtAfterOwner('0x1234567890123456789012345678901234567890');
+    } finally {
+      state.isFetching = false;
+    }
+  }
+
+  /* ===============================
+     OVERLAY (owner-only) - NO CHROMATIC LABELS
+  =============================== */
+  function formatSecs(s){ return (Math.round(s*1000)/1000).toFixed(3); }
+  function tileLabelAndValue(idx){
+    switch(idx){
+      case 0: return ['LINES', String(Math.round(state.numLines))];
+      case 1: return ['WIDTH', `${Math.round(state.lineWidth)} px`];
+      case 2: return ['LENGTH', `${Math.round(state.lineLength)} px`];
+      case 3: return ['GAP', `${state.gapWidth.toFixed(4)} px`];
+      case 4: return ['COLORS', String(Math.round(state.numColors))];
+      case 5: { 
+        const t=state.lineType;
+        let label='SOLID';
+        if(t==='soliddashed') label='SOLID + DASHED';
+        else if(t==='soliddotted') label='SOLID + DOTTED';
+        else if(t==='soliddouble') label='SOLID + DOUBLE';
+        else if(t==='dashes') label='DASHES';
+        else if(t==='dashesdotted') label='DASHES + DOTTED';
+        else if(t==='dashesdouble') label='DASHES + DOUBLE';
+        else if(t==='dotted') label='DOTTED';
+        else if(t==='dotteddouble') label='DOTTED + DOUBLE';
+        else if(t==='double') label='DOUBLE';
+        return ['TYPE', label]; 
+      }
+      case 6: return ['PARALLAX', `${state.parallaxAmount.toFixed(3)}%`];
+      default: return ['SHIFT', `${formatSecs(state.colorShiftInterval/1000)} SEC`];
+    }
+  }
+
+  function buildChunkTile(idx, hex, digits){
+    const [label, val] = tileLabelAndValue(idx);
+    const isPenalised = hex[0] === '0';
+    const isBoosted   = !isPenalised && (hex.startsWith('69') || hex.startsWith('420'));
+    const wrap=document.createElement('div'); 
+    Object.assign(wrap.style,{
+      display:'flex',
+      flexDirection:'column',
+      alignItems:'center',
+      textAlign:'center',
+      color: isPenalised ? '#ff4444' : isBoosted ? '#44ff88' : '#fff',
+      gap:'4px',
+      whiteSpace:'nowrap',
+      fontSize:'clamp(9px,1.2vw,12px)',
+      padding:'8px',
+      minWidth:'120px',
+      flex: '1 1 auto'
+    });
+    if (isPenalised) {
+      wrap.style.borderRadius = '6px';
+      wrap.style.background = 'rgba(255,40,40,0.08)';
+      wrap.style.border = '1px solid rgba(255,60,60,0.25)';
+    } else if (isBoosted) {
+      wrap.style.borderRadius = '6px';
+      wrap.style.background = 'rgba(40,255,120,0.08)';
+      wrap.style.border = '1px solid rgba(60,255,120,0.25)';
+    }
+    const heading=document.createElement('div'); 
+    heading.style.fontFamily='"Courier New", monospace'; 
+    heading.style.opacity='0.95'; 
+    heading.style.fontSize='clamp(8px,1vw,11px)';
+    heading.textContent=`${hex.toUpperCase()} → ${digits}`;
+    const line=document.createElement('div'); 
+    line.style.fontWeight='700'; 
+    line.style.fontSize='clamp(9px,1.1vw,12px)';
+    line.textContent=`${label}: ${val}`;
+    wrap.appendChild(heading); 
+    wrap.appendChild(line); 
+    return wrap;
+  }
+
+  function createRankProgress(rank, max=10){
+    const wrap=document.createElement('div'); 
+    Object.assign(wrap.style,{
+      display:'flex',
+      flexDirection:'column',
+      alignItems:'center',
+      justifyContent:'center',
+      color:'#fff',
+      whiteSpace:'nowrap',
+      minWidth:'80px',
+      maxWidth:'140px',
+      flex: '0 0 auto',
+      gap: '8px'
+    });
+    const size=Math.min(110, window.innerWidth * 0.15, window.innerHeight * 0.15);
+    const stroke=Math.max(8, size * 0.08);
+    const r=(size-stroke)/2;
+    const C=2*Math.PI*r;
+    const pct=Math.max(0,Math.min(rank/max,1));
+    const dashOffset=C*(1-pct);
+    const svgNS='http://www.w3.org/2000/svg';
+    const svg=document.createElementNS(svgNS,'svg'); 
+    svg.setAttribute('width',size); 
+    svg.setAttribute('height',size); 
+    svg.setAttribute('viewBox',`0 0 ${size} ${size}`); 
+    svg.style.display='block';
+    const bg=document.createElementNS(svgNS,'circle'); 
+    bg.setAttribute('cx',size/2); 
+    bg.setAttribute('cy',size/2); 
+    bg.setAttribute('r',r); 
+    bg.setAttribute('fill','none'); 
+    bg.setAttribute('stroke','rgba(255,255,255,.18)'); 
+    bg.setAttribute('stroke-width',stroke);
+    const fg=document.createElementNS(svgNS,'circle'); 
+    fg.setAttribute('cx',size/2); 
+    fg.setAttribute('cy',size/2); 
+    fg.setAttribute('r',r); 
+    fg.setAttribute('fill','none'); 
+    fg.setAttribute('stroke','#fff'); 
+    fg.setAttribute('stroke-width',stroke); 
+    fg.setAttribute('stroke-linecap','round'); 
+    fg.setAttribute('transform',`rotate(-90 ${size/2} ${size/2})`); 
+    fg.setAttribute('stroke-dasharray',C.toString()); 
+    fg.setAttribute('stroke-dashoffset',dashOffset.toString());
+    const label=document.createElementNS(svgNS,'text'); 
+    label.setAttribute('x','50%'); 
+    label.setAttribute('y',(size*0.36).toString()); 
+    label.setAttribute('text-anchor','middle'); 
+    label.setAttribute('dominant-baseline','middle'); 
+    label.setAttribute('fill','#fff'); 
+    label.style.fontWeight='700'; 
+    label.style.fontSize=(size*0.13)+'px'; 
+    label.textContent='RANK';
+    const num=document.createElementNS(svgNS,'text'); 
+    num.setAttribute('x','50%'); 
+    num.setAttribute('y',(size*0.66).toString()); 
+    num.setAttribute('text-anchor','middle'); 
+    num.setAttribute('dominant-baseline','middle'); 
+    num.setAttribute('fill','#fff'); 
+    num.style.fontWeight='800'; 
+    num.style.fontSize=(size*0.26)+'px'; 
+    num.textContent=String(Math.round(rank));
+    svg.appendChild(bg); 
+    svg.appendChild(fg); 
+    svg.appendChild(label); 
+    svg.appendChild(num); 
+    wrap.appendChild(svg);
+
+    // Boost badge (shown if there are boosted chunks)
+    if (state.zeroBoost > 0) {
+      const boostBadge = document.createElement('div');
+      Object.assign(boostBadge.style, {
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px'
+      });
+      const boostLabel = document.createElement('div');
+      boostLabel.textContent = 'BOOST';
+      boostLabel.style.fontSize = (size * 0.11) + 'px';
+      boostLabel.style.opacity = '0.85';
+      boostLabel.style.fontWeight = '600';
+      boostLabel.style.letterSpacing = '0.5px';
+      boostLabel.style.color = '#44ff88';
+      const boostValue = document.createElement('div');
+      boostValue.textContent = '+' + (state.zeroBoost * 100).toFixed(0) + '%';
+      boostValue.style.fontSize = (size * 0.17) + 'px';
+      boostValue.style.fontWeight = '800';
+      boostValue.style.fontFamily = '"Courier New", monospace';
+      boostValue.style.color = '#44ff88';
+      boostBadge.appendChild(boostLabel);
+      boostBadge.appendChild(boostValue);
+      wrap.appendChild(boostBadge);
+    }
+
+    // Penalty badge (shown above TX count if there are zero-leading chunks)
+    if (state.zeroPenalty > 0) {
+      const penBadge = document.createElement('div');
+      Object.assign(penBadge.style, {
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px'
+      });
+      const penLabel = document.createElement('div');
+      penLabel.textContent = 'PENALTY';
+      penLabel.style.fontSize = (size * 0.11) + 'px';
+      penLabel.style.opacity = '0.85';
+      penLabel.style.fontWeight = '600';
+      penLabel.style.letterSpacing = '0.5px';
+      penLabel.style.color = '#ff4444';
+      const penValue = document.createElement('div');
+      penValue.textContent = '-' + (state.zeroPenalty * 100).toFixed(0) + '%';
+      penValue.style.fontSize = (size * 0.17) + 'px';
+      penValue.style.fontWeight = '800';
+      penValue.style.fontFamily = '"Courier New", monospace';
+      penValue.style.color = '#ff4444';
+      penBadge.appendChild(penLabel);
+      penBadge.appendChild(penValue);
+      wrap.appendChild(penBadge);
+    }
+
+    // TX count badge below the circle
+    const txBadge = document.createElement('div');
+    Object.assign(txBadge.style, {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '2px'
+    });
+    const txLabel = document.createElement('div');
+    txLabel.textContent = 'TX COUNT';
+    txLabel.style.fontSize = (size * 0.11) + 'px';
+    txLabel.style.opacity = '0.7';
+    txLabel.style.fontWeight = '600';
+    txLabel.style.letterSpacing = '0.5px';
+    const txValue = document.createElement('div');
+    txValue.textContent = state.txCount.toLocaleString();
+    txValue.style.fontSize = (size * 0.15) + 'px';
+    txValue.style.fontWeight = '800';
+    txValue.style.fontFamily = '"Courier New", monospace';
+    txBadge.appendChild(txLabel);
+    txBadge.appendChild(txValue);
+    wrap.appendChild(txBadge);
+
+    return wrap;
+  }
+
+  function refitOverlayPanel(){
+    if(!currentPanel) return;
+    currentPanel.style.transform='scale(1)';
+    currentPanel.style.transformOrigin='center center';
+    
+    const rect = currentPanel.getBoundingClientRect();
+    const containerWidth = window.innerWidth;
+    const containerHeight = window.innerHeight;
+    
+    const marginX = 40;
+    const marginY = 40;
+    const availableWidth = containerWidth - marginX;
+    const availableHeight = containerHeight - marginY;
+    
+    const scaleX = availableWidth / rect.width;
+    const scaleY = availableHeight / rect.height;
+    const scale = Math.min(scaleX, scaleY, 1);
+    
+    if (scale < 1) {
+      currentPanel.style.transform = `scale(${scale})`;
+    }
+  }
+
+  function shorten(addr, pre=6, post=4){
+    if(!addr || addr.length<pre+post+2) return addr||'—';
+    return addr.slice(0,2+pre)+'…'+addr.slice(-post);
+  }
+
+  function displayOverlay(){
+    const overlay=document.getElementById('overlay');
+    const overlayContent=document.getElementById('overlayContent');
+    overlay.style.display='flex'; 
+    overlay.style.background='transparent'; 
+    overlay.style.alignItems='center'; 
+    overlay.style.justifyContent='center';
+    overlayContent.innerHTML=''; 
+    
+    const outer=document.createElement('div'); 
+    currentPanel=outer;
+    Object.assign(outer.style,{
+      display:'flex',
+      flexDirection:'column',
+      alignItems:'center',
+      justifyContent:'center',
+      gap:'clamp(8px, 2vw, 16px)',
+      padding:'clamp(12px, 3vw, 20px)',
+      borderRadius:'14px',
+      background:'rgba(0,0,0,0.75)',
+      backdropFilter:'blur(8px)',
+      border:'1px solid rgba(255,255,255,0.1)',
+      maxWidth:'none',
+      maxHeight:'none',
+      width:'auto',
+      height:'auto'
+    });
+
+    const header=document.createElement('div'); 
+    Object.assign(header.style,{
+      display:'flex',
+      flexDirection:'column',
+      alignItems:'center',
+      justifyContent:'center',
+      color:'#fff',
+      marginBottom:'clamp(8px, 2vw, 12px)',
+      width: '100%'
+    });
+    
+    const hLabel=document.createElement('div');
+    hLabel.textContent = "Owner's Address";
+    hLabel.style.fontSize='clamp(10px,1.4vw,13px)'; 
+    hLabel.style.opacity='0.9'; 
+    hLabel.style.marginBottom='8px';
+    
+    const inputContainer = document.createElement('div');
+    Object.assign(inputContainer.style, {
+      position: 'relative',
+      display: 'flex',
+      width: '100%',
+      maxWidth: '600px',
+      minWidth: '280px'
+    });
+    
+    const walletInput = document.createElement('input');
+    walletInput.type = 'text';
+    walletInput.value = state.ensName || state.walletAddress || '';
+    walletInput.placeholder = '0x1234567890123456789012345678901234567890';
+    Object.assign(walletInput.style, {
+      fontFamily: '"Courier New", monospace',
+      fontSize: 'clamp(10px,1.2vw,14px)',
+      letterSpacing: '0.3px',
+      background: 'transparent',
+      border: '1px solid rgba(255,255,255,0.3)',
+      borderRadius: '6px',
+      padding: '8px 50px 8px 12px',
+      color: '#fff',
+      width: '100%',
+      textAlign: 'left',
+      outline: 'none',
+      boxSizing: 'border-box'
+    });
+    
+    const applyButton = document.createElement('button');
+    applyButton.textContent = '➤';
+    Object.assign(applyButton.style, {
+      position: 'absolute',
+      right: '4px',
+      top: '50%',
+      transform: 'translateY(-50%)',
+      background: 'transparent',
+      color: '#fff',
+      border: 'none',
+      borderRadius: '4px',
+      padding: '6px 8px',
+      fontSize: 'clamp(12px,1.4vw,16px)',
+      cursor: 'pointer',
+      fontWeight: '600',
+      whiteSpace: 'nowrap',
+      outline: 'none',
+      transition: 'all 0.2s ease',
+      zIndex: '1'
+    });
+    
+    walletInput.addEventListener('dblclick', (e) => { e.stopPropagation(); });
+    walletInput.addEventListener('focus', () => {
+      walletInput.style.borderColor = 'rgba(255,255,255,0.6)';
+    });
+    walletInput.addEventListener('blur', () => {
+      walletInput.style.borderColor = 'rgba(255,255,255,0.3)';
+    });
+    
+    applyButton.addEventListener('mouseenter', () => {
+      applyButton.style.color = '#ccc';
+      applyButton.style.transform = 'translateY(-50%) scale(1.1)';
+    });
+    applyButton.addEventListener('mouseleave', () => {
+      applyButton.style.color = '#fff';
+      applyButton.style.transform = 'translateY(-50%) scale(1)';
+    });
+    
+    applyButton.addEventListener('click', async () => {
+      let newAddress = walletInput.value.trim();
+
+      // If it looks like an ENS name, resolve it to an address first
+      let typedEns = null;
+      if (newAddress && !newAddress.startsWith('0x')) {
+        const resolved = await resolveEnsName(newAddress);
+        if (!resolved) {
+          alert('Could not resolve ENS name. Please check it is correct.');
+          return;
+        }
+        typedEns = newAddress; // remember what the user typed
+        newAddress = resolved;
+        // Set ENS immediately so the input shows the name without any flicker
+        state.ensName = typedEns;
+      }
+
+      if (newAddress && newAddress.length === 42 && newAddress.startsWith('0x')) {
+        console.log('Applying new wallet address:', newAddress);
+
+        // Fetch tx count for the new address
+        try {
+          const rpcUrl = state.activeRpcUrl || DEFAULT_RPC_URLS[0];
+          state.txCount = await fetchTxCount(newAddress, rpcUrl);
+          console.log(`TX count for ${newAddress}: ${state.txCount}`);
+        } catch(e) {
+          console.warn('Could not fetch tx count for new address, defaulting to 0:', e.message);
+          state.txCount = 0;
+        }
+
+        // Only do reverse lookup if a raw address was typed, not an ENS name
+        if (!typedEns) {
+          state.ensName = null;
+          fetchEnsName(newAddress).then(name => {
+            state.ensName = name;
+            refreshOverlayIfShowing();
+          });
+        }
+
+        const success = processWalletAddress(newAddress);
+        if (success) {
+          reseed(baseSeed);
+          generateLines();
+          clearTransparent();
+          drawTechLinesFromConfig(state.lines);
+
+          if (WARP.enabled) {
+            WARP.update(performance.now());
+            WARP.draw(context);
+          }
+
+          underpaintBlack();
+          syncControlsToState();
+          refreshOverlayIfShowing();
+        } else {
+          alert('Invalid wallet address format');
+        }
+      } else {
+        alert('Please enter a valid 42-character wallet address starting with 0x');
+      }
+    });
+    
+    walletInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyButton.click();
+      }
+    });
+    
+    inputContainer.appendChild(walletInput);
+    inputContainer.appendChild(applyButton);
+
+    const tokenIdRow = document.createElement('div');
+    Object.assign(tokenIdRow.style, {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '8px',
+      marginBottom: '8px',
+      fontSize: 'clamp(10px,1.2vw,13px)',
+      opacity: '0.85'
+    });
+    const tokenIdLabel = document.createElement('span');
+    tokenIdLabel.textContent = 'Token ID:';
+    tokenIdLabel.style.opacity = '0.7';
+    const tokenIdValue = document.createElement('span');
+    tokenIdValue.textContent = NFT_TOKEN_ID;
+    tokenIdValue.style.fontFamily = '"Courier New", ui-monospace, monospace';
+    tokenIdValue.style.color = '#fff';
+    tokenIdRow.appendChild(tokenIdLabel);
+    tokenIdRow.appendChild(tokenIdValue);
+
+    header.appendChild(tokenIdRow);
+    header.appendChild(hLabel);
+    header.appendChild(inputContainer);
+    outer.appendChild(header);
+
+    if(!overlayModel){
+      const hint=document.createElement('div'); 
+      hint.style.color='#fff'; 
+      hint.style.opacity='0.85'; 
+      hint.textContent='Loading owner…';
+      outer.appendChild(hint); 
+      overlayContent.appendChild(outer); 
+      refitOverlayPanel(); 
+      return;
+    }
+    
+    const {chunks, digitsArr}=overlayModel;
+    
+    const rankCenter = createRankProgress(state.displayRank, 100);
+    
+    if (window.innerWidth > 800) {
+      const chunksContainer = document.createElement('div');
+      Object.assign(chunksContainer.style, {
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 'clamp(24px, 6vw, 48px)',
+        width: '100%'
+      });
+      
+      const leftGrid = document.createElement('div');
+      Object.assign(leftGrid.style, {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, 1fr)',
+        gridTemplateRows: 'repeat(2, 1fr)',
+        gap: 'clamp(8px, 2vw, 12px)',
+        alignItems: 'stretch',
+        justifyItems: 'stretch'
+      });
+      for(let i = 0; i < 4; i++) {
+        leftGrid.appendChild(buildChunkTile(i, chunks[i], digitsArr[i]));
+      }
+      
+      const rightGrid = document.createElement('div');
+      Object.assign(rightGrid.style, {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, 1fr)',
+        gridTemplateRows: 'repeat(2, 1fr)',
+        gap: 'clamp(8px, 2vw, 12px)',
+        alignItems: 'stretch',
+        justifyItems: 'stretch'
+      });
+      for(let i = 4; i < 8; i++) {
+        rightGrid.appendChild(buildChunkTile(i, chunks[i], digitsArr[i]));
+      }
+      
+      chunksContainer.appendChild(leftGrid);
+      chunksContainer.appendChild(rankCenter);
+      chunksContainer.appendChild(rightGrid);
+      outer.appendChild(chunksContainer);
+      
+    } else {
+      const rankContainer = document.createElement('div');
+      Object.assign(rankContainer.style, {
+        display: 'flex',
+        justifyContent: 'center',
+        width: '100%',
+        marginBottom: 'clamp(12px, 3vw, 20px)'
+      });
+      rankContainer.appendChild(rankCenter);
+      outer.appendChild(rankContainer);
+      
+      const chunksGrid = document.createElement('div');
+      Object.assign(chunksGrid.style, {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, 1fr)',
+        gridTemplateRows: 'repeat(4, 1fr)',
+        gap: 'clamp(8px, 2vw, 12px)',
+        width: '100%',
+        alignItems: 'stretch',
+        justifyItems: 'stretch'
+      });
+      
+      for(let i = 0; i < 8; i++) {
+        chunksGrid.appendChild(buildChunkTile(i, chunks[i], digitsArr[i]));
+      }
+      
+      outer.appendChild(chunksGrid);
+    }
+
+    overlayContent.appendChild(outer);
+    
+    requestAnimationFrame(() => {
+      refitOverlayPanel();
+    });
+  }
+
+  /* ===============================
+     OVERLAY TOGGLE & CONTROLS SHOW/HIDE
+  =============================== */
+  function toggleOverlay(){ 
+    const overlay=document.getElementById('overlay'); 
+    const showing=overlay.style.display==='flex'; 
+    if(showing){ 
+      overlay.style.display='none'; 
+      currentPanel=null; 
+    } else { 
+      displayOverlay(); 
+    } 
+  }
+
+  function enableDoubleTapToggle(el, callback, requireBackground=false){
+    let lastTime=0, lastX=0, lastY=0;
+    el.addEventListener('touchend',(e)=>{
+      const t=e.changedTouches[0], now=Date.now(), dx=Math.abs(t.clientX-lastX), dy=Math.abs(t.clientY-lastY);
+      if(requireBackground && e.target!==el){ lastTime=now; lastX=t.clientX; lastY=t.clientY; return; }
+      if(now-lastTime<300 && dx<30 && dy<30){ e.preventDefault(); callback(); lastTime=0; } else { lastTime=now; lastX=t.clientX; lastY=t.clientY; }
+    }, {passive:false});
+  }
+
+  const overlayEl=document.getElementById('overlay');
+  const canvasEl=document.getElementById('generativeCanvas');
+
+  canvasEl.addEventListener('dblclick', (e)=>{ e.stopPropagation(); toggleOverlay(); });
+
+  if (overlayEl) {
+    overlayEl.addEventListener('dblclick',(e)=>{ e.stopPropagation(); toggleOverlay(); });
+  }
+
+  enableDoubleTapToggle(canvasEl, ()=>toggleOverlay(), false);
+  if (overlayEl) enableDoubleTapToggle(overlayEl, ()=>toggleOverlay(), false);
+
+  document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'&&overlayEl&&overlayEl.style.display==='flex') toggleOverlay(); });
+
+  const controlsEl = document.getElementById('controlsMenu');
+  let controlsVisible = false;
+  function showControls(){ if(!controlsVisible){ controlsVisible = true; controlsEl.classList.remove('hidden'); } }
+  function hideControls(){ if(controlsVisible){ controlsVisible = false; controlsEl.classList.add('hidden'); } }
+
+  window.addEventListener('wheel', (e) => {
+    if (e.deltaY > 8) showControls();
+    else if (e.deltaY < -8) hideControls();
+  }, { passive: true });
+
+  let touchStartY = null;
+  window.addEventListener('touchstart', (e) => {
+    if (e.touches && e.touches.length === 1) touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+  window.addEventListener('touchmove', (e) => {
+    if (touchStartY == null) return;
+    const y = e.touches[0].clientY;
+    const dy = y - touchStartY;
+    if (dy > 25) { showControls(); touchStartY = y; }
+    else if (dy < -25) { hideControls(); touchStartY = y; }
+  }, { passive: true });
+  window.addEventListener('touchend', () => { touchStartY = null; }, { passive: true });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 't') { controlsVisible ? hideControls() : showControls(); }
+  });
+
+  function refreshOverlayIfShowing(){ 
+    const overlay=document.getElementById('overlay'); 
+    if(overlay && overlay.style.display==='flex') displayOverlay(); 
+  }
+
+  function lineTypeLabel(t){
+    switch(t){
+      case 'solid': return 'Solid';
+      case 'dashes': return 'Dashes';
+      case 'dotted': return 'Dotted';
+      case 'double': return 'Double';
+      case 'soliddashed': return 'Solid + Dashed';
+      case 'soliddotted': return 'Solid + Dotted';
+      case 'soliddouble': return 'Solid + Double';
+      case 'dashesdotted': return 'Dashes + Dotted';
+      case 'dashesdouble': return 'Dashes + Double';
+      case 'dotteddouble': return 'Dotted + Double';
+      default: return t;
+    }
+  }
+
+  function syncControlsToState(){
+    const lineSel=document.getElementById('lineTypeSelect');
+    if(lineSel){
+      if (![...lineSel.options].some(o=>o.value===state.lineType)) {
+        const opt=document.createElement('option');
+        opt.value=state.lineType; opt.textContent=lineTypeLabel(state.lineType);
+        lineSel.appendChild(opt);
+      }
+      lineSel.value = state.lineType;
+    }
+  }
+
+  function doRegenFromWallet(){
+    if (!state.walletAddress) return;
+
+    const keepLineType = state.lineType;
+
+    state.regenCount = (state.regenCount || 0) + 1;
+    baseSeed = fnv1a(state.walletHexLower + ':' + NFT_TOKEN_ID + ':' + state.regenCount);
+    reseed(baseSeed);
+
+    state.lineType = keepLineType;
+
+    generateLines();
+
+    clearTransparent();
+    drawTechLinesFromConfig(state.lines);
+
+    if (WARP.enabled){
+      WARP.update(performance.now());
+      WARP.draw(context);
+    }
+
+    underpaintBlack();
+    syncControlsToState();
+    frameIndex = 0;
+    refreshOverlayIfShowing();
+  }
+
+  function startArtAfterOwner(owner){
+    hideStatus();
+    processWalletAddress(owner);
+    syncControlsToState();
+
+    WARP.resize(canvas.width, canvas.height);
+
+    clearTimeout(rafTimer);
+    frameIndex = 0;
+    clearTransparent();
+    drawTechLinesFromConfig(state.lines);
+
+    if (WARP.enabled){ WARP.update(performance.now()); WARP.draw(context); }
+    underpaintBlack();
+
+    rafTimer = setTimeout(()=>requestAnimationFrame(updateAndAnimate), baseMsPerFrame);
+    refreshOverlayIfShowing();
+    endLoading();
+  }
+
+  function populateLineTypeSelect(){
+    const sel=document.getElementById('lineTypeSelect'); 
+    if(!sel) return;
+    
+    sel.innerHTML='';
+    
+    const lineOptions = [
+      {value:'solid', label:'Solid'},
+      {value:'dashes', label:'Dashes'},
+      {value:'dotted', label:'Dotted'},
+      {value:'double', label:'Double'},
+      {value:'soliddashed', label:'Solid + Dashed'},
+      {value:'soliddotted', label:'Solid + Dotted'},
+      {value:'soliddouble', label:'Solid + Double'},
+      {value:'dashesdotted', label:'Dashes + Dotted'},
+      {value:'dashesdouble', label:'Dashes + Double'},
+      {value:'dotteddouble', label:'Dotted + Double'}
+    ];
+    
+    lineOptions.forEach(option => {
+      const opt = document.createElement('option');
+      opt.value = option.value;
+      opt.textContent = option.label;
+      sel.appendChild(opt);
+    });
+    
+    sel.value = state.lineType;
+  }
+
+  function wireLineTypeSelect(){
+    const sel=document.getElementById('lineTypeSelect'); if(!sel) return;
+    sel.addEventListener('change', e=>{
+      state.lineType=e.target.value;
+      reseed(baseSeed);
+      generateLines();
+      clearTransparent();
+      drawTechLinesFromConfig(state.lines);
+      if (WARP.enabled){ WARP.update(performance.now()); WARP.draw(context); }
+      underpaintBlack(); 
+      refreshOverlayIfShowing();
+    });
+  }
+
+  function wireRegenButton(){
+    const btn=document.getElementById('regenBtn'); if(!btn) return;
+    btn.addEventListener('click', ()=>{ doRegenFromWallet(); });
+  }
+
+  function wireRpcControls(){
+    const input=document.getElementById('rpcUrlInput');
+    const btnUse=document.getElementById('useRpcBtn');
+    const theReset=document.getElementById('resetRpcBtn');
+    const btnRetry=document.getElementById('retryLookupBtn');
+
+    input.value = state.activeRpcUrl || state.customRpcUrl || '';
+
+    btnUse.addEventListener('click', async ()=>{
+      const url=(input.value||'').trim();
+      state.customRpcUrl = url;
+      startLoading();
+      await fetchOwnerWithRawCalls();
+    });
+
+    theReset.addEventListener('click', async ()=>{
+      state.customRpcUrl='';
+      input.value=''; state.activeRpcUrl='';
+      startLoading();
+      await fetchOwnerWithRawCalls();
+    });
+
+    btnRetry.addEventListener('click', async ()=>{
+      startLoading();
+      await fetchOwnerWithRawCalls();
+    });
+  }
+
+  /* ===============================
+     OWNER PROCESS - WITH HYBRID SEED FOR EDITIONS
+  =============================== */
+  function processWalletAddress(address){
+    if(typeof address!=='string') return false;
+    const addr=address.trim(); 
+    if(!addr.startsWith('0x')||addr.length!==42) return false;
+    state.walletAddress=addr;
+
+    const hexLower=addr.slice(2).toLowerCase();
+    state.walletHexLower = hexLower;
+    state.walletSeedBase = fnv1a(hexLower);
+    state.regenCount = 0;
+
+    // ── HYBRID SEED: wallet + token ID + regen count ──
+    // Ensures each edition is unique even if same wallet owns multiple
+    baseSeed = fnv1a(state.walletHexLower + ':' + NFT_TOKEN_ID + ':' + state.regenCount);
+    reseed(baseSeed);
+
+    const chunks=split8x5(hexLower);
+
+    // Original digits — displayed as-is in overlay (shows leading 0)
+    const digitsArr=chunks.map(chunkToDigitsString);
+
+    // Patched digits — leading 0 swapped to 1 for value calculation only
+    const patchedDigitsArr=chunks.map(c=>chunkToDigitsString(patchLeadingZero(c)));
+    const values=patchedDigitsArr.map(d=>digitsStringToValue_Tens(d));
+
+    const rank=computeWalletRank(digitsArr);
+    const txRank=computeTxRank(state.txCount);
+
+    // Each chunk starting with 0 penalises rank by 0.15 (max -1.2 across 8 chunks)
+    const zeroPenalty = countZeroChunks(chunks) * 0.15;
+    const zeroBoost   = countBoostChunks(chunks) * 0.20;
+
+    const txMultiplier = Math.ceil(Math.min(txRank, 100) / 20);
+    const finalRank = Math.max(1, (txMultiplier * 0.8) + (rank * 0.2) - zeroPenalty + zeroBoost);
+
+    state.walletRank = rank;
+    state.txRank = txRank;
+    state.zeroPenalty = zeroPenalty;
+    state.zeroBoost   = zeroBoost;
+    // Display rank: apply penalty and boost converted to 1-100 scale
+    state.displayRank = Math.max(1, Math.min(100, Math.round(txRank - (zeroPenalty * 20) + (zeroBoost * 20))));
+
+    mapFromChunkValues(chunks, digitsArr, values, finalRank, rank);
+    frameIndex=0;
+    generateLines();
+    return true;
+  }
+
+  /* ===============================
+     RESIZE HANDLER
+  =============================== */
+  window.addEventListener('resize', () => {
+    sizeCanvas();
+    if (!state.walletAddress) return;
+    reseed(baseSeed);
+    generateLines();
+    clearTransparent();
+    drawTechLinesFromConfig(state.lines);
+
+    WARP.resize(canvas.width, canvas.height);
+    WARP.update(performance.now()); 
+    WARP.draw(context);
+
+    refreshOverlayIfShowing();
+    underpaintBlack();
+  });
+
+  /* ===============================
+     INIT
+  =============================== */
+  document.addEventListener('DOMContentLoaded', async ()=>{
+    startLoading();
+
+    console.log('Environment check:', { isLocalhost, isManifold, isSandboxed });
+
+    try {
+      try {
+        console.log('Loading quadrantsurls.json...');
+        const urls = await loadQuadrantsUrls();
+        
+        if (urls.defaultRpcUrls && Array.isArray(urls.defaultRpcUrls) && urls.defaultRpcUrls.length > 0) {
+          DEFAULT_RPC_URLS = urls.defaultRpcUrls;
+        }
+        
+        console.log(`Using ${DEFAULT_RPC_URLS.length} RPC URLs:`, DEFAULT_RPC_URLS);
+      } catch (error) {
+        console.warn('Failed to load quadrantsurls.json, using fallbacks:', error);
+      }
+      
+      populateLineTypeSelect();
+      wireLineTypeSelect();
+      wireRegenButton();
+      wireRpcControls();
+
+      canvas.style.backgroundColor='#000000';
+
+      WARP.resize(canvas.width, canvas.height);
+
+      await fetchOwnerWithRawCalls();
+    } catch (error) {
+      console.error('Failed to initialize:', error);
+      showStatus('Initialization failed - using demo mode', true);
+      startArtAfterOwner('0x1234567890123456789012345678901234567890');
+    }
+  });
+
+  /* ===============================
+     GLOBAL DEBUG FUNCTIONS FOR CONSOLE
+  =============================== */
+  window.debugQuadrants = {
+    state: () => state,
+    retry: fetchOwnerWithRawCalls,
+    showStatus,
+    hideStatus
+  };
+
+  console.log('Debug functions available: window.debugQuadrants');
+</script>
+
+</body>
+</html>
