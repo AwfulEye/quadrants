@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quadrants — Mint</title>
+  <style>
+    :root { color-scheme: dark; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0b0b0b;
+      color: #fff;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      flex-shrink: 0;
+    }
+    .logo { font-weight: 800; font-size: clamp(16px, 2vw, 24px); letter-spacing: 3px; }
+    .byline { font-size: 11px; opacity: .5; letter-spacing: 1px; margin-top: 2px; }
+
+    #connectBtn {
+      background: #191919;
+      color: #fff;
+      border: 1px solid #333;
+      border-radius: 10px;
+      padding: 9px 18px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 150ms;
+      white-space: nowrap;
+    }
+    #connectBtn:hover { background: #222; }
+    #connectBtn.connected { border-color: #2ea84b; color: #2ea84b; }
+
+    /* ── Main layout ── */
+    main {
+      flex: 1;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 32px;
+      padding: 32px 24px;
+    }
+
+    @media (max-width: 800px) {
+      main { flex-direction: column; align-items: stretch; padding: 20px 16px; }
+    }
+
+    /* ── Art preview (square) ── */
+    #artWrap {
+      flex-shrink: 0;
+      width: min(520px, 100%);
+    }
+
+    #artSquare {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.08);
+    }
+
+    #artFrame {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+
+    #artPlaceholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: #0d0d0d;
+      color: rgba(255,255,255,.35);
+      font-size: 13px;
+      letter-spacing: 1px;
+    }
+
+    #artPlaceholder .ph-icon {
+      width: 48px;
+      height: 48px;
+      border: 2px solid rgba(255,255,255,.15);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      opacity: .5;
+    }
+
+    /* ── Mint panel ── */
+    #mintPanel {
+      flex: 0 0 340px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    @media (max-width: 800px) {
+      #mintPanel { flex: none; }
+    }
+
+    .panel-title {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 2px;
+    }
+    .panel-sub {
+      font-size: 13px;
+      opacity: .55;
+      line-height: 1.5;
+      margin-top: 4px;
+    }
+
+    #networkBadge {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      display: inline-block;
+      width: fit-content;
+      color: rgba(255,255,255,.5);
+    }
+    #networkBadge.testnet { border-color: #854d0e; color: #fbbf24; }
+    #networkBadge.mainnet { border-color: #14532d; color: #4ade80; }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .info-box {
+      background: #111;
+      border: 1px solid #1e1e1e;
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .info-label { font-size: 10px; opacity: .45; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+    .info-value { font-size: 20px; font-weight: 700; }
+    .info-value.price { color: #a78bfa; }
+
+    .progress-wrap { display: flex; flex-direction: column; gap: 6px; }
+    .progress-label { display: flex; justify-content: space-between; font-size: 12px; opacity: .5; }
+    .progress-bar { height: 4px; background: #1e1e1e; border-radius: 2px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #a78bfa; border-radius: 2px; transition: width 400ms ease; }
+
+    hr.divider { border: none; border-top: 1px solid rgba(255,255,255,.07); }
+
+    #statusMsg {
+      font-size: 13px;
+      min-height: 18px;
+      opacity: .65;
+      line-height: 1.4;
+    }
+    #statusMsg.error { color: #f87171; opacity: 1; }
+    #statusMsg.success { color: #4ade80; opacity: 1; }
+
+    #mintBtn {
+      background: #a78bfa;
+      color: #0b0b0b;
+      border: none;
+      border-radius: 12px;
+      padding: 16px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: background 150ms, opacity 150ms;
+      width: 100%;
+    }
+    #mintBtn:hover:not(:disabled) { background: #c4b5fd; }
+    #mintBtn:disabled { opacity: .4; cursor: not-allowed; }
+
+    .wallet-addr {
+      font-size: 11px;
+      opacity: .4;
+      font-family: ui-monospace, monospace;
+      word-break: break-all;
+    }
+
+    .disclaimer {
+      font-size: 11px;
+      opacity: .35;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">QUADRANTS</div>
+    <div class="byline">BY AWFULEYE</div>
+  </div>
+  <button id="connectBtn">Connect Wallet</button>
+</header>
+
+<main>
+  <!-- Square art preview -->
+  <div id="artWrap">
+    <div id="artSquare">
+      <iframe id="artFrame" title="Quadrants preview" allowfullscreen style="display:none"></iframe>
+      <div id="artPlaceholder">
+        <div class="ph-icon">◈</div>
+        <span>Connect wallet to preview your edition</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mint panel -->
+  <div id="mintPanel">
+    <div>
+      <div class="panel-title">QUADRANTS</div>
+      <div class="panel-sub">Generative art that evolves with its owner.<br>Your wallet. Your art.</div>
+    </div>
+
+    <div id="networkBadge">Not connected</div>
+
+    <div class="info-grid">
+      <div class="info-box">
+        <div class="info-label">Price</div>
+        <div class="info-value price" id="priceDisplay">—</div>
+      </div>
+      <div class="info-box">
+        <div class="info-label">Edition</div>
+        <div class="info-value" id="editionDisplay">/ 1000</div>
+      </div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-label">
+        <span>Minted</span>
+        <span id="progressLabel">— / 1000</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+    </div>
+
+    <hr class="divider" />
+
+    <div id="statusMsg"></div>
+
+    <button id="mintBtn" disabled>Connect Wallet to Mint</button>
+
+    <div class="wallet-addr" id="walletDisplay"></div>
+
+    <hr class="divider" />
+
+    <div class="disclaimer">
+      Each Quadrant is permanently tied to its owner's wallet address. The artwork transforms completely with every transfer — no two owners ever see the same piece.
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+/* ── CONFIG ── */
+const ART_BASE_URL = 'https://awfuleye.github.io/quadrants/indextmp.html';
+
+const NETWORKS = {
+  11155111: {
+    name: 'Sepolia Testnet',
+    creatorContract: '0x8e10b3b89736f8fc991f58e83b5e3113c44c64cb',
+    claimExtension:  '0x23aA05a271DEBFFAA3D75739aF5581f744b326E4',
+    instanceId:      '4064661744',
+    isTestnet: true,
+  },
+  1: {
+    name: 'Ethereum Mainnet',
+    creatorContract: '0x07ADf21203c99253095fACB5995737Cc6eb70f05',
+    claimExtension:  '',
+    instanceId:      '',
+    isTestnet: false,
+  },
+};
+
+const MINT_FEE = 500000000000000n; // 0.0005 ETH Manifold protocol fee
+
+const CLAIM_ABI = [
+  'function mintBatch(address creatorContractAddress, uint256 instanceId, uint16 mintCount, uint32[] calldata mintIndices, bytes32[][] calldata merkleProofs, address mintFor) external payable',
+  'function getClaim(address creatorContractAddress, uint256 instanceId) external view returns (tuple(uint32 total, uint32 totalMax, uint32 walletMax, uint48 startDate, uint48 endDate, uint8 storageProtocol, uint8 contractVersion, bool identical, bytes32 merkleRoot, string location, uint256 cost, address paymentReceiver, address erc20, address signingAddress) claim)',
+];
+
+/* ── STATE ── */
+let provider  = null;
+let signer    = null;
+let account   = null;
+let chainId   = null;
+let network   = null;
+let claimCost = 0n;
+
+/* ── ELEMENTS ── */
+const connectBtn    = document.getElementById('connectBtn');
+const mintBtn       = document.getElementById('mintBtn');
+const statusMsg     = document.getElementById('statusMsg');
+const walletDisplay = document.getElementById('walletDisplay');
+const networkBadge  = document.getElementById('networkBadge');
+const priceDisplay  = document.getElementById('priceDisplay');
+const editionDisplay= document.getElementById('editionDisplay');
+const progressLabel = document.getElementById('progressLabel');
+const progressFill  = document.getElementById('progressFill');
+const artFrame      = document.getElementById('artFrame');
+const artPlaceholder= document.getElementById('artPlaceholder');
+
+/* ── HELPERS ── */
+function setStatus(msg, type = '') {
+  statusMsg.textContent = msg;
+  statusMsg.className = type;
+}
+
+function shortAddr(addr) {
+  return addr ? addr.slice(0, 6) + '...' + addr.slice(-4) : '';
+}
+
+function showArtPreview(walletAddress) {
+  artFrame.src = `${ART_BASE_URL}?previewWallet=${walletAddress}`;
+  artFrame.style.display = 'block';
+  artPlaceholder.style.display = 'none';
+}
+
+async function loadClaimInfo() {
+  if (!network?.claimExtension || !network?.instanceId) return;
+  try {
+    const contract = new ethers.Contract(network.claimExtension, CLAIM_ABI, provider);
+    const claim = await contract.getClaim(network.creatorContract, network.instanceId);
+    claimCost = BigInt(claim.cost);
+    const total    = Number(claim.total);
+    const totalMax = Number(claim.totalMax);
+    const totalCost = claimCost + MINT_FEE;
+    priceDisplay.textContent   = ethers.formatEther(totalCost) + ' ETH';
+    editionDisplay.textContent = `/ ${totalMax}`;
+    progressLabel.textContent  = `${total} / ${totalMax}`;
+    progressFill.style.width   = totalMax > 0 ? Math.min((total / totalMax) * 100, 100) + '%' : '0%';
+    mintBtn.disabled = false;
+  } catch (e) {
+    console.warn('getClaim failed:', e);
+  }
+}
+
+function updateNetworkUI() {
+  if (!network) {
+    networkBadge.textContent  = 'Unsupported network';
+    networkBadge.className    = '';
+    priceDisplay.textContent  = '—';
+    mintBtn.disabled    = true;
+    mintBtn.textContent = 'Wrong Network';
+    return;
+  }
+  networkBadge.textContent = network.name;
+  networkBadge.className   = network.isTestnet ? 'testnet' : 'mainnet';
+  mintBtn.disabled    = true; // enabled after getClaim
+  mintBtn.textContent = 'Mint';
+}
+
+/* ── CONNECT ── */
+async function connect() {
+  if (!window.ethereum) {
+    setStatus('MetaMask not detected. Please install it.', 'error');
+    return;
+  }
+  try {
+    setStatus('Connecting...');
+    provider = new ethers.BrowserProvider(window.ethereum);
+    const accounts = await provider.send('eth_requestAccounts', []);
+    account  = accounts[0];
+    signer   = await provider.getSigner();
+    const net = await provider.getNetwork();
+    chainId  = Number(net.chainId);
+    network  = NETWORKS[chainId] || null;
+
+    connectBtn.textContent = shortAddr(account);
+    connectBtn.classList.add('connected');
+    walletDisplay.textContent = account;
+
+    updateNetworkUI();
+    showArtPreview(account);
+
+    if (network) await loadClaimInfo();
+    setStatus('');
+  } catch (e) {
+    setStatus(e.message || 'Connection failed.', 'error');
+  }
+}
+
+/* ── MINT ── */
+async function mint() {
+  if (!signer || !network) return;
+  if (!network.claimExtension || !network.instanceId) {
+    setStatus('Mainnet claim not configured yet.', 'error');
+    return;
+  }
+  try {
+    mintBtn.disabled    = true;
+    mintBtn.textContent = 'Minting...';
+    setStatus('Confirm the transaction in your wallet...');
+
+    const contract   = new ethers.Contract(network.claimExtension, CLAIM_ABI, signer);
+    const totalValue = claimCost + MINT_FEE;
+    const tx = await contract.mintBatch(
+      network.creatorContract,
+      network.instanceId,
+      1,
+      [],
+      [],
+      account,
+      { value: totalValue }
+    );
+
+    setStatus('Transaction submitted — waiting for confirmation...');
+    const receipt = await tx.wait();
+    setStatus(`Minted! Tx: ${receipt.hash.slice(0, 10)}...`, 'success');
+    await loadClaimInfo();
+  } catch (e) {
+    setStatus(e?.reason || e?.message || 'Transaction failed.', 'error');
+  } finally {
+    mintBtn.disabled    = false;
+    mintBtn.textContent = 'Mint';
+  }
+}
+
+/* ── EVENTS ── */
+connectBtn.addEventListener('click', connect);
+mintBtn.addEventListener('click', mint);
+
+if (window.ethereum) {
+  window.ethereum.on('accountsChanged', (accounts) => {
+    account = accounts[0] || null;
+    if (account) {
+      connectBtn.textContent = shortAddr(account);
+      walletDisplay.textContent = account;
+      showArtPreview(account);
+    } else {
+      connectBtn.textContent = 'Connect Wallet';
+      connectBtn.classList.remove('connected');
+      walletDisplay.textContent = '';
+      artFrame.style.display = 'none';
+      artPlaceholder.style.display = 'flex';
+      account = null;
+    }
+  });
+  window.ethereum.on('chainChanged', () => window.location.reload());
+}
+</script>
+</body>
+</html>
