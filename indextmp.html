@@ -2039,6 +2039,12 @@ hr.overlay-sep {
 /* ── MINT PANEL ── */
 window.QUADRANTS_MINT_MODE = true;
 
+// Hide loader immediately — art starts when wallet connects
+document.addEventListener('DOMContentLoaded', () => {
+  const loader = document.getElementById('loader');
+  if (loader) loader.classList.add('hidden');
+});
+
 const MINT_FEE    = 500000000000000n;
 const MP_NETWORKS = {
   11155111: {
